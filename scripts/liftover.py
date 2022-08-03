@@ -2,6 +2,7 @@ import collections
 import logging
 import sys
 from copy import copy
+from io import StringIO
 
 import vcf
 from vcf.parser import _Info as VcfInfo
@@ -9,6 +10,20 @@ from vcf.parser import _Info as VcfInfo
 contig_spec = collections.namedtuple('Contig', 'id,length')
 calldata_spec = collections.namedtuple('CallData', 'GT')
 CHROMS = [str(i) for i in range(1, 23)] + ['X', 'Y']
+
+# the following is an minimum vcf needed to generate new ones
+# If there are no records in a vcf file, we use this template to add in mismatch sites
+EXAMPLE_VCF = [
+    "##fileformat=VCFv4.2",
+    "##reference=file:///resources/b37/GRCh38.p12.fa",
+    "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">",
+    "##contig=<ID=chr2>",
+    "##contig=<ID=chr6>",
+    "##contig=<ID=chr15>",
+    "##contig=<ID=chr19>",
+    "#CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO    FORMAT  sample1",
+    "chr2  21012603     .      C     T     100    PASS  .    GT  1/1",
+]
 
 def convert_hg19_vcf_to_grch37_vcf(input_vcf_file, output_vcf_file):
     """
@@ -178,6 +193,15 @@ def update_grch38_ref_to_grch37_for_record_if_needed(record, mismatched_site_key
     return record
 
 
+def _create_fake_record():
+    """
+    If the input vcf file is empty, use a fake record to use as template to create mismatch records
+    """
+    with StringIO('\n'.join(EXAMPLE_VCF)) as fh:
+        records = list(vcf.Reader(fh))
+        return records[0]
+
+
 def convert_grch38_ref_mismatch_sites_to_grch37(input_vcf_file, output_vcf_basename):
     """
     For ACMG59 reportable range there are 4 sites that have
@@ -191,6 +215,10 @@ def convert_grch38_ref_mismatch_sites_to_grch37(input_vcf_file, output_vcf_basen
     output_vcf_file = f'{output_vcf_basename}.vcf'
     reader = vcf.Reader(filename=input_vcf_file)
     records = list(reader)
+    if len(records) == 0:
+        record = _create_fake_record()
+        logger.warning(f'VCF file {input_vcf_file} is empty. We will be creating the mismatch sites using a template')
+
     mismatched_site_overlap = {}
     for record in records:
         mismatched_site_key = find_overlapping_mismatch_site(record)
